@@ -147,6 +147,14 @@ app.action({
                 await db.query(`insert into teachers (id, name) values ($1, $2)`, [user.id, name])
             }
         })
+
+        let url = await ask({
+            service: config.MQservices.auth,
+            action: 'getapplurl',
+            params: {name: config.apps.tareas}
+        })
+
+        return url
     }
 })
 
