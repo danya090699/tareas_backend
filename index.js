@@ -87,7 +87,7 @@ app.action({
         let db = this.db
         let ask = this.ask
 
-        if (user.is_admin) {
+        if (is_student || user.is_admin) {
             let url;
 
             await db.transaction(async () => {
@@ -121,7 +121,7 @@ app.action({
 
             return url
         }
-        else app.exit({mesage: "Нет доступа"})
+        else app.exit({message: "Нет доступа"})
     }
 })
 
@@ -188,7 +188,7 @@ async function get_file_urls(ask, files) {
         Object.entries(files).map(async ([key, id]) => {
             link = await ask({
                 service: config.MQservices.s3,
-                action: "getUrlTest",
+                action: "getUrl",
                 params: {key: id}
             })
             return [key, link]
