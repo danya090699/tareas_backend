@@ -88,38 +88,25 @@ app.action({
         let ask = this.ask
 
         if (is_student || user.is_admin) {
-            let url;
-
-            await db.transaction(async () => {
-                let id = (await db.query(
-                    `insert into users_not_registered (teacher_id, name, is_student) values ($1, $2, $3) returning id`,
-                    [user.id, name, is_student]
-                ))[0].id
-
-                let obj_encrypt = await ask({
-                    service: config.MQservices.auth,
-                    action: 'encrypt',
-                    params: {data: id}
-                })
-
-                url = await ask({
-                    service: config.MQservices.auth,
-                    action: 'geturl',
-                    params: {
-                        appl: config.apps.linkWithAuth,
-                        params: {
-                            service: config.MQservice.name,
-                            func: 'register_user',
-                            params: obj_encrypt,
-                            appllinks: config.apps.links,
-                        }
-                    }
-                })
-
-                await db.query(`update users_not_registered set url = $1 where id = $2`, [url, id])
+            let obj_encrypt = await ask({
+                service: config.MQservices.auth,
+                action: 'encrypt',
+                params: {data: {teacher_id: user.id, name, is_student}}
             })
 
-            return url
+            return ask({
+                service: config.MQservices.auth,
+                action: 'geturl',
+                params: {
+                    appl: config.apps.linkWithAuth,
+                    params: {
+                        service: config.MQservice.name,
+                        func: 'register_user',
+                        params: obj_encrypt,
+                        appllinks: config.apps.links,
+                    }
+                }
+            })
         }
         else app.exit({message: "Нет доступа"})
     }
@@ -132,19 +119,18 @@ app.action({
         let db = this.db
         let ask = this.ask
 
-        let temp_id = await ask({
+        let {teacher_id, name, is_student} = await ask({
             service: config.MQservices.auth,
             action: 'decrypt',
             params: {data: obj_encrypt}
         })
 
         await db.transaction(async () => {
-            let {teacher_id, name, is_student} = (await db.query(`delete from users_not_registered where id = $1 returning teacher_id, name, is_student`, [temp_id]))[0]
             if (is_student) {
-                await db.query(`insert into students (id, teacher_id, name) values ($1, $2, $3)`, [user.id, teacher_id, name])
+                await db.query(`insert into students (id, teacher_id, name) values ($1, $2, $3) on conflict(id) do nothing`, [user.id, teacher_id, name])
             }
             else {
-                await db.query(`insert into teachers (id, name) values ($1, $2)`, [user.id, name])
+                await db.query(`insert into teachers (id, name) values ($1, $2) on conflict(id) do nothing`, [user.id, name])
             }
         })
 
@@ -221,11 +207,7 @@ app.action({
     func: async function() {
         let user = this.user;
         let db = this.db;
-
-        return {
-            students: await db.query(`select * from students where teacher_id = $1`, [user.id]),
-            not_registered: await db.query(`select * from users_not_registered where teacher_id = $1`, [user.id])
-        }
+        return db.query(`select * from students where teacher_id = $1`, [user.id])
     }
 })
 
