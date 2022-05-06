@@ -126,6 +126,13 @@ app.action({
         })
 
         await db.transaction(async () => {
+            if ((await db.query(`select * from students where id = $1`, [user.id])).length) {
+                return
+            }
+            if ((await db.query(`select * from teachers where id = $1`, [user.id])).length) {
+                return
+            }
+
             if (is_student) {
                 await db.query(`insert into students (id, teacher_id, name) values ($1, $2, $3) on conflict(id) do nothing`, [user.id, teacher_id, name])
             }
