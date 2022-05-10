@@ -231,29 +231,24 @@ app.action({
 
 app.action({
     name: "get_teacher_tasks",
-    options: {userType: "all"},
+    options: {userType: "teacher"},
     func: async function() {
-        if (this.user.type == "teacher") {
-            return this.db.query(
-                `select
-                     tasks.id,
-                     tasks.type_id,
-                     tasks.name,
-                     coalesce(solved.count, 0) as solved_count
-                from tasks
-                left join (
-                    select task_id, count(*)
-                    from solved_tasks
-                    group by task_id
-                ) as solved
-                on tasks.id = solved.task_id
-                where teacher_id = $1`,
-                [this.user.id]
-            );
-        }
-        else {
-            return this.db.query(`select id, type_id, name from tasks where teacher_id = $1`, [this.user.teacher_id])
-        }
+        return this.db.query(
+            `select
+                 tasks.id,
+                 tasks.type_id,
+                 tasks.name,
+                 coalesce(solved.count, 0) as solved_count
+            from tasks
+            left join (
+                select task_id, count(*)
+                from solved_tasks
+                group by task_id
+            ) as solved
+            on tasks.id = solved.task_id
+            where teacher_id = $1`,
+            [this.user.id]
+        );
     }
 })
 
@@ -280,6 +275,7 @@ app.action({
     func: async function({id}) {
         let user = this.user;
         let db = this.db;
+        let teacher_id = (user.type == "student") ? user.teacher_id : user.id
 
         if (user.type == "student") id = user.id;
         else {
@@ -287,14 +283,22 @@ app.action({
             if (!rows.length) app.exit({message: "Нет доступа"});
         }
 
-        return db.query(
+        return this.db.query(
             `select
                 tasks.id,
                 tasks.type_id,
-                tasks.name
-            from solved_tasks inner join tasks on solved_tasks.task_id = tasks.id
-            where solved_tasks.student_id = $1`,
-            [id]
+                tasks.name,
+                (solved.task_id is not null) as solved,
+                solved.checked
+            from tasks
+            left join (
+                select task_id, checked
+                from solved_tasks
+                where student_id = $1
+            ) as solved
+            on tasks.id = solved.task_id
+            where teacher_id = $2`,
+            [id, teacher_id]
         )
     }
 })
@@ -312,7 +316,7 @@ app.action({
             if (!rows.length) app.exit({message: "Нет доступа"});
         }
 
-        let rows = await db.query(`select files, other_info from solved_tasks where task_id = $1 and student_id = $2`, [task_id, student_id])
+        let rows = await db.query(`select files, other_info, checked from solved_tasks where task_id = $1 and student_id = $2`, [task_id, student_id])
         if (!rows.length) app.exit({message: "Задание не найдено"});
 
         let task = rows[0];
@@ -378,12 +382,28 @@ app.action({
 
             files = await get_file_ids(db, files);
             await db.query(
-                `insert into solved_tasks (task_id, student_id, files, other_info)
-                values ($1, $2, $3, $4)
+                `insert into solved_tasks (task_id, student_id, files, other_info, checked)
+                values ($1, $2, $3, $4, false)
                 on conflict (task_id, student_id)
-                do update set files = EXCLUDED.files, other_info = EXCLUDED.other_info`,
+                do update set files = EXCLUDED.files, other_info = EXCLUDED.other_info, checked = false`,
                 [task_id, user.id, files, other_info]
             )
+        })
+    }
+})
+
+app.action({
+    name: "check_task",
+    options: {userType: "teacher"},
+    func: async function({task_id, student_id}) {
+        user = this.user;
+        db = this.db;
+
+        await db.transaction(async () => {
+            let rows = await db.query(`select * from students where id = $1 and teacher_id = $2`, [student_id, user.id]);
+            if (!rows.length) app.exit({message: "Нет доступа"});
+
+            await db.query(`update solved_tasks set checked = true where task_id = $1 and student_id = $2`, [task_id, student_id])
         })
     }
 })
